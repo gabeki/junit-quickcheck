@@ -20,12 +20,12 @@ import org.junit.runners.model.FrameworkMethod;
  */
 public class FrameworkMethodGraph {
 
-    private DefaultDirectedWeightedGraph<FrameworkMethod, FrameworkMethodWeightedEdge> fsm;
+    protected DefaultDirectedWeightedGraph<FrameworkMethod, FrameworkMethodWeightedEdge> fsm;
 
     /**
      * Implement WeightedEdge.
      */
-    private static class FrameworkMethodWeightedEdge extends DefaultWeightedEdge {
+    protected static class FrameworkMethodWeightedEdge extends DefaultWeightedEdge {
 
         public static final long serialVersionUID = 42L;
 
@@ -40,8 +40,16 @@ public class FrameworkMethodGraph {
         }
     }
 
-    private FrameworkMethodGraph() {
-        fsm = new DefaultDirectedWeightedGraph<FrameworkMethod, FrameworkMethodWeightedEdge>(FrameworkMethodWeightedEdge.class);
+    protected FrameworkMethodGraph() {
+        this(new DefaultDirectedWeightedGraph<FrameworkMethod, FrameworkMethodWeightedEdge>(FrameworkMethodWeightedEdge.class));
+    }
+
+    private FrameworkMethodGraph(DefaultDirectedWeightedGraph<FrameworkMethod, FrameworkMethodWeightedEdge> fsm) {
+        this.fsm = fsm;
+    }
+
+    public FrameworkMethodGraph(FrameworkMethodGraph that) {
+        this(that.fsm);
     }
 
     public static FrameworkMethodGraph parseFrameworkMethodGraph(final List<FrameworkMethod> fms) {
@@ -62,15 +70,25 @@ public class FrameworkMethodGraph {
 
         TheoryVertex vertexInfo = getVertexInfo(newMethod);
         if (vertexInfo.loopToSelf()) {
-            fsm.addEdge(newMethod, newMethod, new FrameworkMethodWeightedEdge(vertexInfo.weight()));
+            addOutgoingEdge(newMethod, newMethod, vertexInfo.weight());
         }
 
         for (FrameworkMethod fm : fsm.vertexSet()) {
             if (fm.equals(newMethod)) {
                 continue;
             }
-            fsm.addEdge(newMethod, fm, new FrameworkMethodWeightedEdge(getWeight(newMethod, fm)));
-            fsm.addEdge(fm, newMethod, new FrameworkMethodWeightedEdge(getWeight(fm, newMethod)));
+            addOutgoingEdge(newMethod, fm);
+            addOutgoingEdge(fm, newMethod);
+        }
+    }
+
+    private void addOutgoingEdge(final FrameworkMethod from, final FrameworkMethod to) {
+        addOutgoingEdge(from, to, getWeight(from, to));
+    }
+
+    private void addOutgoingEdge(final FrameworkMethod from, final FrameworkMethod to, final double weight) {
+        if (weight > 0) {
+            fsm.addEdge(from, to, new FrameworkMethodWeightedEdge(weight));
         }
     }
 
@@ -79,6 +97,15 @@ public class FrameworkMethodGraph {
         return (vertexInfo == null) ? TheoryVertex.DEFAULTS : vertexInfo;
     }
 
+    /**
+     * Find the weight of the edge from from to to.  If the vertex from does not
+     * specify any outgoing edge, assume its allowed to connect to all other
+     * vertexes in the graph with the equal weight.
+     *
+     * @param from
+     * @param to
+     * @return
+     */
     private double getWeight(final FrameworkMethod from, final FrameworkMethod to) {
         TheoryVertex vertexInfo = getVertexInfo(from);
         if (vertexInfo.connectTo().length == 0) {
