@@ -1,9 +1,16 @@
 package org.junit.internal.runners.model;
 
+import java.lang.reflect.Type;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
+import java.util.concurrent.Callable;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
+import org.junit.contrib.theories.PotentialAssignment;
+import org.junit.contrib.theories.internal.Assignments;
 import org.junit.internal.AssumptionViolatedException;
 import org.junit.runner.Description;
 import org.junit.runner.notification.RunNotifier;
@@ -18,7 +25,60 @@ public class ProgressNotifier extends EachTestNotifier {
 
     private static Logger logger = LoggerFactory.getLogger(ProgressNotifier.class);
 
-    private List<FrameworkMethod> progress;
+    public static class Step implements Callable<Void> {
+        private FrameworkMethod method;
+        private Assignments assignments;
+
+        public Step(final FrameworkMethod method, final Assignments assignments) {
+            this.method = method;
+            this.assignments = assignments;
+        }
+
+        /**
+         * Call the tested method with the given arguments again.
+         *
+         * TODO: Revisit me - depends how {@link org.junit.contrib.theories.GraphTheories.RerunnableScheduler} uses it.
+         *
+         * @return
+         * @throws Exception
+         */
+        @Override
+        public Void call() throws Exception {
+            try {
+                method.invokeExplosively(null, assignments.getMethodArguments());
+            } catch (Throwable t) {
+                // *sigh* this is why people shouldn't throw generic exceptions
+                throw new RuntimeException(t);
+            }
+            return null;
+        }
+
+        @Override
+        public String toString() {
+            StringBuilder sb = new StringBuilder(method.getName());
+            sb.append("(");
+
+            Object[] params;
+            try {
+                params = assignments.getMethodArguments();
+            } catch (PotentialAssignment.CouldNotGenerateValueException e) {
+                // please forgive me
+                return method.toString();
+            }
+
+            List<Type> paramTypes = Arrays.asList(method.getMethod().getParameterTypes());
+
+            final AtomicInteger i = new AtomicInteger();
+            sb.append(paramTypes.stream()
+                    .map(t -> "(" + t + ") " + params[i.getAndIncrement()])
+                    .collect(Collectors.joining(", ")));
+
+            sb.append(")");
+            return sb.toString();
+        }
+    }
+
+    private List<Step> progress;
     private Description description;
 
     public ProgressNotifier(RunNotifier notifier, Description description) {
@@ -31,8 +91,8 @@ public class ProgressNotifier extends EachTestNotifier {
         return description;
     }
 
-    public void addProgress(FrameworkMethod testedMethod) {
-        progress.add(testedMethod);
+    public void addStep(final FrameworkMethod testedMethod, final Assignments usedAssignments) {
+        progress.add(new Step(testedMethod, usedAssignments));
     }
 
     public void addFailedAssumption(AssumptionViolatedException e) {
@@ -50,7 +110,9 @@ public class ProgressNotifier extends EachTestNotifier {
     public String toString(final String delimiter) {
         final String prefix = description.getClassName() + ".";
         return description + ": "
-                + progress.stream().map(i -> i.toString().replace(prefix, "")).collect(Collectors.joining(delimiter));
+                + progress.stream()
+                          .map(i -> i.toString().replace(prefix, ""))
+                          .collect(Collectors.joining(delimiter));
     }
 }
 

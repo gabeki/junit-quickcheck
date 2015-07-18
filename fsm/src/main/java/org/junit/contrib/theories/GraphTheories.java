@@ -15,6 +15,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import org.junit.contrib.theories.internal.Assignments;
 import org.junit.internal.runners.model.ProgressNotifier;
 import org.junit.runner.Description;
 import org.junit.runner.notification.RunNotifier;
@@ -115,6 +116,12 @@ public class GraphTheories extends Theories {
          */
         boolean isStart() default false;
 
+        /**
+         * Specify which Theory could run next.
+         * TODO: Should also implement excludes?
+         *
+         * @return
+         */
         TheoryEdge[] connectTo() default {};
 
         /**
@@ -264,10 +271,16 @@ public class GraphTheories extends Theories {
                 if (isIgnored(testMethod)) {
                     progress.fireTestIgnored();
                 } else {
-                    progress.addProgress(testMethod);
                     progress.description().addChild(describeChild(testMethod));
-                    // TODO: need to capture generated params too
-                    new TheoryAnchor(testMethod, getTestClass()).evaluate();
+
+                    // hijack the test method and assignments before calling it
+                    new TheoryAnchor(testMethod, getTestClass()) {
+                        @Override
+                        protected void runWithCompleteAssignment(final Assignments complete) throws Throwable {
+                            progress.addStep(testMethod, complete);
+                            super.runWithCompleteAssignment(complete);
+                        }
+                    }.evaluate();
                 }
             }
         }
@@ -290,7 +303,6 @@ public class GraphTheories extends Theories {
             if (progress == null) {
                 throw new ExceptionInInitializerError("ProgressNotifier is not set");
             }
-
             childStatement.run();
         }
 
@@ -303,4 +315,5 @@ public class GraphTheories extends Theories {
         }
     }
 }
+
 
